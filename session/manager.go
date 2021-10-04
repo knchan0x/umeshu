@@ -11,10 +11,8 @@ import (
 
 // Session manager manages session and session store.
 type SessionManager struct {
-	store       Store  // session store
-	name        string // name of session cookie
-	maxLifeTime int    // max lifetime for session
-	lapseTime   int    // lapse time for session id
+	store    Store           // session store
+	settings SessionSettings // settings
 
 	// GC
 	isGCStarted bool
@@ -22,25 +20,33 @@ type SessionManager struct {
 }
 
 // Settings of session manager.
-type ManagerSettings struct {
+type SessionSettings struct {
 	Name        string // name of session cookie
-	Store       Store  // session store
+	StoreType   string // session store type
 	MaxLifeTime int    // max lifetime for session, in second
 	LapseTime   int    // lapse time for session id, in second
+
+	// key value pair for session authentication
+	// optional, will use default values if nil
+	// default value:
+	// 		TokenKey = "Token"
+	// 		TokenValue = "User-Agent"
+	TokenKey   string // token key
+	TokenValue string // token value, must be part of HTTP request header
 }
 
 const (
-	defaultSessionName string = "SID"
-	defaultMaxLifeTime int    = 86400 // one day
-	defaultLapseTime   int    = 1800  // half hour
+	createTime string = "CreateTime" // create time of session cookie
 )
 
-// DefaultSessionManager provides default values for session manager.
-var DefaultSessionManager = ManagerSettings{
-	Name:        defaultSessionName,
-	Store:       NewStore("LRU_Cache"),
-	MaxLifeTime: defaultMaxLifeTime,
-	LapseTime:   defaultLapseTime,
+// DefaultSettings provides default values for session manager.
+var DefaultSettings = SessionSettings{
+	Name:        "SID",
+	StoreType:   "InMemory",
+	MaxLifeTime: 86400, // one day
+	LapseTime:   1800,  // half hour
+	TokenKey:    "Token",
+	TokenValue:  "User-Agent",
 }
 
 // Global session manager
@@ -49,29 +55,33 @@ var Manager *SessionManager
 // NewManager creates and returns new session manager object.
 // It will start running GC at separate goroutine.
 // SessionManager can only be created once.
-func NewManager(settings ManagerSettings) *SessionManager {
+func NewManager(settings SessionSettings) *SessionManager {
 	if Manager != nil {
 		return Manager
 	}
 
 	if settings.Name == "" {
-		settings.Name = DefaultSessionManager.Name
+		settings.Name = DefaultSettings.Name
 	}
-	if settings.Store == nil {
-		settings.Store = DefaultSessionManager.Store
+	if settings.StoreType == "" {
+		settings.StoreType = DefaultSettings.StoreType
 	}
 	if settings.MaxLifeTime == 0 {
-		settings.MaxLifeTime = DefaultSessionManager.MaxLifeTime
+		settings.MaxLifeTime = DefaultSettings.MaxLifeTime
 	}
 	if settings.LapseTime == 0 {
-		settings.LapseTime = DefaultSessionManager.MaxLifeTime
+		settings.LapseTime = DefaultSettings.MaxLifeTime
+	}
+	if settings.TokenKey == "" {
+		settings.Name = DefaultSettings.TokenKey
+	}
+	if settings.TokenValue == "" {
+		settings.Name = DefaultSettings.TokenValue
 	}
 
-	Manager := &SessionManager{
-		name:        settings.Name,
-		store:       settings.Store,
-		maxLifeTime: settings.MaxLifeTime,
-		lapseTime:   settings.LapseTime,
+	Manager = &SessionManager{
+		store:    NewStore(settings.StoreType, settings),
+		settings: settings,
 	}
 
 	Manager.StartGC()
@@ -85,27 +95,27 @@ func (m *SessionManager) StartSession(rw http.ResponseWriter, r *http.Request) S
 		log.Panic("session manager does not exists.")
 	}
 
-	cookie, err := r.Cookie(m.name)
-	agent := r.Header.Get("User-Agent")
+	cookie, err := r.Cookie(m.settings.Name)
+	value := r.Header.Get(m.settings.TokenValue)
 	if err != nil || cookie.Value == "" {
-		return m.newSession(rw, agent)
+		return m.newSession(rw, value)
 	}
 	if err != nil {
-		log.Error("session manager unable to load cookie [%s]: %s", m.name, err.Error())
+		log.Error("session manager unable to load session cookie: %s", err.Error())
 	}
 
 	sid, _ := url.QueryUnescape(cookie.Value)
 	session, _ := m.store.Read(sid)
 	if session == nil {
-		return m.newSession(rw, agent)
+		return m.newSession(rw, value)
 	}
 
-	if token := session.Get("Token"); token != agent {
-		return m.newSession(rw, agent)
+	if tokenValue := session.Get(m.settings.TokenKey); tokenValue != value {
+		return m.newSession(rw, value)
 	}
 
-	if createTime := session.Get("CreateTime"); createTime != nil {
-		if createTime.(time.Time).Unix()+int64(m.lapseTime) < time.Now().Unix() {
+	if createTime := session.Get(createTime); createTime != nil {
+		if createTime.(time.Time).Unix()+int64(m.settings.LapseTime) < time.Now().Unix() {
 			// change session id to prevent session hijacking
 			newSID := m.newSessionID()
 			m.store.UpdateSID(sid, newSID)
@@ -124,7 +134,7 @@ func (m *SessionManager) EndSession(rw http.ResponseWriter, r *http.Request) {
 		log.Panic("session manager does not exists")
 	}
 
-	cookie, err := r.Cookie(m.name)
+	cookie, err := r.Cookie(m.settings.Name)
 	if err != nil || cookie.Value == "" {
 		return
 	}
@@ -158,7 +168,7 @@ func (m *SessionManager) StopGC() {
 
 // gc runs GC in a new goroutine.
 func (m *SessionManager) gc() {
-	ticker := time.NewTicker(time.Duration(m.maxLifeTime) * time.Second)
+	ticker := time.NewTicker(time.Duration(m.settings.MaxLifeTime) * time.Second)
 	go func() {
 		for {
 			select {
@@ -167,7 +177,7 @@ func (m *SessionManager) gc() {
 					return
 				}
 			case <-ticker.C:
-				m.store.GC(m.maxLifeTime)
+				m.store.GC(m.settings.MaxLifeTime)
 			}
 		}
 	}()
@@ -177,11 +187,11 @@ func (m *SessionManager) gc() {
 // defined in session manager.
 func (m *SessionManager) newSessionCookie(sid string) *http.Cookie {
 	return &http.Cookie{
-		Name:     m.name,
+		Name:     m.settings.Name,
 		Value:    url.QueryEscape(sid),
 		Path:     "/",
 		HttpOnly: true,
-		MaxAge:   m.maxLifeTime,
+		MaxAge:   m.settings.MaxLifeTime,
 	}
 }
 
@@ -189,7 +199,7 @@ func (m *SessionManager) newSessionCookie(sid string) *http.Cookie {
 // with -1 max age.
 func (m *SessionManager) newEndSessionCookie() *http.Cookie {
 	return &http.Cookie{
-		Name:     m.name,
+		Name:     m.settings.Name,
 		Path:     "/",
 		HttpOnly: true,
 		Expires:  time.Now(),
@@ -201,6 +211,7 @@ func (m *SessionManager) newEndSessionCookie() *http.Cookie {
 func (m *SessionManager) newSession(rw http.ResponseWriter, agent string) Session {
 	sid := m.newSessionID()
 	session, _ := m.store.Insert(sid, agent)
+	session.Set(createTime, time.Now())
 	cookie := m.newSessionCookie(sid)
 	http.SetCookie(rw, cookie)
 	return session
