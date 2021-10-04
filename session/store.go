@@ -8,7 +8,6 @@ type Store interface {
 
 	// creates new session according to session id and token
 	// and insert it into persistence store
-	// token is the type of User-Agent
 	Insert(sid string, token string) (Session, error)
 
 	// replaces old session id by new id
@@ -22,16 +21,16 @@ type Store interface {
 	GC(maxLifeTime int)
 }
 
-type constructor func() Store
+type constructor func(SessionSettings) Store
 
 // storeConstructorMap stores all registered store type.
 var storeConstructorMap = make(map[string]constructor)
 
 // NewStore creates new store instance according to StoreType,
 // returns nil if no such storeType.
-func NewStore(storeType string) Store {
+func NewStore(storeType string, settings SessionSettings) Store {
 	if f, ok := storeConstructorMap[storeType]; ok {
-		return f()
+		return f(settings)
 	}
 	return nil
 }
