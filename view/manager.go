@@ -22,7 +22,7 @@ func NewManager(pattern string, funcMap FuncMap) *ViewManager {
 	}
 
 	castMap := template.FuncMap(funcMap)
-	Manager := &ViewManager{
+	Manager = &ViewManager{
 		funcMap: castMap,
 	}
 	Manager.Template = template.Must(template.New("").Funcs(castMap).ParseGlob(pattern))
