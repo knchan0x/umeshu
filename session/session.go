@@ -5,12 +5,13 @@ type Session interface {
 	Get(key interface{}) interface{}  // gets session value
 	Set(key, value interface{}) error // sets session value
 	Delete(key interface{}) error     // deletes session value
-	SessionID() string                // returns session id
 }
 
 // Default implementation of Session interface,
 // reference type
 type session map[interface{}]interface{}
+
+var _ Session = (session)(nil) // interface check
 
 // Get returns the value.
 func (s session) Get(key interface{}) interface{} {
@@ -30,9 +31,4 @@ func (s session) Set(key, value interface{}) error {
 func (s session) Delete(key interface{}) error {
 	delete(s, key)
 	return nil
-}
-
-// SessionID returns it's session id.
-func (s session) SessionID() string {
-	return s["SID"].(string)
 }
