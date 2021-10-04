@@ -12,20 +12,29 @@ import (
 // inMemory is the default implementation of Store Interface.
 // It is thread-safe.
 type inMemory struct {
-	cache map[string]*list.Element
-	quene *list.List // oldest in the front
-	mu    sync.RWMutex
+	cache    map[string]*list.Element
+	quene    *list.List // oldest in the front
+	settings SessionSettings
+	mu       sync.RWMutex
 }
+
+const (
+	lastAccessTime string = "LastAccessTime"
+)
+
+var _ Store = (*inMemory)(nil) // interface check
 
 // init registers constructor in storeConstructorMap.
 func init() {
 	Register("InMemory", newInMemoryStore)
 }
 
-// newLRUStore returns a store object.
-func newInMemoryStore() Store {
+// newInMemoryStore returns a store object.
+func newInMemoryStore(settings SessionSettings) Store {
 	return &inMemory{
-		quene: list.New(),
+		cache:    make(map[string]*list.Element),
+		quene:    list.New(),
+		settings: settings,
 	}
 }
 
@@ -33,10 +42,12 @@ func newInMemoryStore() Store {
 // if no such session id
 func (m *inMemory) Read(sid string) (Session, error) {
 	m.mu.RLock()
-	defer m.mu.Unlock()
+	element, ok := m.cache[sid]
+	m.mu.RUnlock()
 
-	if element, ok := m.cache[sid]; ok {
-		if err := element.Value.(Session).Set("LastAccessTime", time.Now()); err == nil {
+	if ok {
+
+		if err := element.Value.(Session).Set(lastAccessTime, time.Now()); err == nil {
 			return element.Value.(Session), nil
 		}
 	}
@@ -44,7 +55,7 @@ func (m *inMemory) Read(sid string) (Session, error) {
 }
 
 // Insert creates new session object according to session id and token
-// and insert it into cache. token is the type of User-Agent.
+// and insert it into cache.
 func (m *inMemory) Insert(sid string, token string) (Session, error) {
 	if m.quene == nil {
 		m.quene = list.New()
@@ -52,16 +63,13 @@ func (m *inMemory) Insert(sid string, token string) (Session, error) {
 
 	// config session
 	newSession := make(session)
-	if err := newSession.Set("SID", sid); err != nil {
+	if err := newSession.Set(m.settings.Name, sid); err != nil {
 		return nil, err
 	}
-	if err := newSession.Set("Token", token); err != nil {
+	if err := newSession.Set(m.settings.TokenKey, token); err != nil {
 		return nil, err
 	}
-	if err := newSession.Set("CreateTime", time.Now()); err != nil {
-		return nil, err
-	}
-	if err := newSession.Set("LastAccessTime", time.Now()); err != nil {
+	if err := newSession.Set(lastAccessTime, time.Now()); err != nil {
 		return nil, err
 	}
 
@@ -83,7 +91,7 @@ func (m *inMemory) UpdateSID(old string, new string) {
 	if !ok {
 		return
 	}
-	element.Value.(Session).Set("SID", new)
+	element.Value.(Session).Set(m.settings.Name, new)
 	m.cache[new] = element
 	delete(m.cache, old)
 
@@ -96,7 +104,7 @@ func (m *inMemory) Delete(sid string) error {
 	defer m.mu.Unlock()
 
 	if m.quene == nil {
-		panic("session persistence: cache not exists.")
+		log.Panic("in-memory cache not exists.")
 	}
 
 	element, ok := m.cache[sid]
@@ -121,7 +129,7 @@ func (m *inMemory) GC(maxLifeTime int) {
 			break
 		}
 		// no last access time, unable to clean cache according to life time
-		lastAccessTime := element.Value.(Session).Get("LastAccessTime")
+		lastAccessTime := element.Value.(Session).Get(lastAccessTime)
 		if lastAccessTime == nil {
 			break
 		}
@@ -130,7 +138,7 @@ func (m *inMemory) GC(maxLifeTime int) {
 			break
 		}
 
-		s := element.Value.(Session).Get("SID")
+		s := element.Value.(Session).Get(m.settings.Name)
 		if s == nil {
 			continue
 		}
