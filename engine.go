@@ -154,7 +154,7 @@ func (e *Engine) LoadHTMLTemplates(folder string, funcMap FuncMap) {
 
 // EnableSession starts session.Manager with settings provided.
 // Use session.DefaultSession for default settings.
-func (e *Engine) EnableSession(settings session.ManagerSettings) {
+func (e *Engine) EnableSession(settings session.SessionSettings) {
 	session.NewManager(settings)
 }
 
