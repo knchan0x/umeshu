@@ -45,7 +45,7 @@ func New() *Engine {
 // Internally, it calls (*Engine).New() and attaches Recovery middleware.
 func Default() *Engine {
 	e := New()
-	e.Use(Recovery())
+	e.Use(Logging(), Recovery())
 	return e
 }
 
