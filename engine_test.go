@@ -24,22 +24,29 @@ func BenchmarkNewContext_Pool(b *testing.B) {
 	myclient := &http.Client{}
 	go func() {
 		time.Sleep(5 * time.Second)
-		for i := 0; i < 5000; i++ {
+		for i := 1; i <= 50; i++ {
 			go func(i int) {
 				url := fmt.Sprintf("http://localhost:8080/")
-				resp, _ := myclient.Get(url)
-				defer resp.Body.Close()
+				resp, err := myclient.Get(url)
+				if err != nil {
+					log.Error("client get error: %s", err)
+					return
+				}
 				if resp.StatusCode == http.StatusOK {
 					bodyBytes, err := ioutil.ReadAll(resp.Body)
 					if err != nil {
-						log.Error(err.Error())
+						log.Error("read body error: %s", err.Error())
 					}
 					bodyString := string(bodyBytes)
-					log.SetLevel(log.InfoLevel)
-					log.Debug(bodyString)
+					if bodyString != "Hi" {
+						log.Error("error body != hi, body = %s", bodyString)
+					}
+				}
+				if errBody := resp.Body.Close(); errBody != nil {
+					log.Error("error on closing body: %s", errBody.Error())
 				}
 			}(i)
-			if i == 4999 {
+			if i == 50 {
 				log.Info("%d times done", i)
 			}
 		}
