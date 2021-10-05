@@ -3,7 +3,9 @@ package umeshu
 import (
 	"context"
 	"net/http"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/knchan0x/umeshu/log"
 	"github.com/knchan0x/umeshu/session"
@@ -16,7 +18,7 @@ import (
 type Engine struct {
 	*routerGroup
 	groups   []*routerGroup
-	shutdown chan struct{}
+	shutdown context.CancelFunc
 }
 
 // HandlerFunc defines the request handler.
@@ -60,7 +62,6 @@ func (e *Engine) Run(addr string) {
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Panic("unable to run Umeshu engine")
 	}
-	log.Info("Umeshu is listening and serving HTTP on %s\n", addr)
 }
 
 // Run sets up a http server and starts listening and serving HTTPS requests.
@@ -69,17 +70,15 @@ func (e *Engine) RunTLS(addr, certFile, keyFile string) {
 	if err := srv.ListenAndServeTLS(certFile, keyFile); err != http.ErrServerClosed {
 		log.Panic("unable to run Umeshu engine")
 	}
-	log.Info("Umeshu is listening and serving HTTP on %s\n", addr)
 }
 
 // Shutdown sends a message to http.Server to shut it down.
 func (e *Engine) Shutdown() {
 	if e.shutdown == nil {
-		log.Error("Umeshu engine is not running, unable to close it.")
+		log.Error("no shutdown function provided")
 		return
 	}
-	log.Info("Shutting down Uneshu engine...")
-	close(e.shutdown)
+	e.shutdown()
 }
 
 // prepareServer creates and returns *http.Server instance.
@@ -98,19 +97,21 @@ func (e *Engine) prepareServer(addr string) *http.Server {
 	// apply middlewares
 	e.ApplyMiddleware()
 
-	e.shutdown = make(chan struct{}, 1)
+	// starts a new goroutine to monitor shutdown signal
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	e.shutdown = cancel
+
 	go func() {
 		for {
-			if _, ok := <-e.shutdown; !ok {
-				err := srv.Shutdown(context.Background())
-				if err != nil {
-					log.Error("shutdown error: %s", err.Error())
-				}
-				log.Info("Uneshu engine is shutted down.")
+			<-ctx.Done()
+			log.Info("Shutting down Uneshu engine...")
+			if err := srv.Shutdown(context.Background()); err != nil {
+				log.Error("Shutdown error: %s", err.Error())
 			}
 		}
 	}()
 
+	log.Info("Umeshu is listening and serving HTTP on %s\n", addr)
 	return srv
 }
 
