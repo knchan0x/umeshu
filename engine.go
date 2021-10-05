@@ -51,6 +51,7 @@ func Default() *Engine {
 func (e *Engine) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	context := NewContext(rw, r)
 	e.routerGroup.router.handle(context)
+	context.Free()
 }
 
 // Run sets up a http server and starts listening and serving HTTP requests.
