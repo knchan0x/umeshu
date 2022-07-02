@@ -11,30 +11,30 @@ Building a mini web framework from scratch using Go standard library such as net
 
 Umeshu has the following features:
 
-* radix tree based routing
-	* parameter pattern
-	* wildcard pattern
-	* path parameter matching
-* routes grouping
-* middleware support
-* crash-free
-	* auto recovery when panic
-	* internal server error response
-	* trackback log
-* multi-level loggers
-* cache based session
-* pprof support
-* graceful shutdown
+1. radix tree based routing
+	- parameter pattern
+	- wildcard pattern
+	- path parameter matching
+2. routes grouping
+3. middleware support
+4. crash-free
+	- auto recovery when panic
+	- internal server error response
+	- trackback log
+5. multi-level loggers
+6. cache based session
+7. pprof support
+8. graceful shutdown
 
 
 ## References
-* Gin Web Framework
+1. Gin Web Framework
 	* [https://github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)
-* echo
+2. echo
 	* [https://github.com/labstack/echo](https://github.com/labstack/echo)
-* 7 days golang programs from scratch
+3. 7 days golang programs from scratch
 	* [https://github.com/geektutu/7days-golang](https://github.com/geektutu/7days-golang)
-* Build Web Application with Golang
+4. Build Web Application with Golang
 	* [https://github.com/astaxie/build-web-application-with-golang](https://github.com/astaxie/build-web-application-with-golang)
 
 ## License
